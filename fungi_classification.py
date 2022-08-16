@@ -407,13 +407,14 @@ if __name__ == '__main__':
     image_dir = "/scratch/hilss/DF20M/"
 
     # where should log files, temporary files and trained models be placed
-    network_dir = "/home/"
+    network_dir = "./network/"
 
-    get_participant_credits(team, team_pw)
-    print_data_set_numbers(team, team_pw)
-    # request_random_labels(team, team_pw)
-    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
-    train_fungi_network(network_dir)
+    # get_participant_credits(team, team_pw)
+    # print_data_set_numbers(team, team_pw)
+    # # request_random_labels(team, team_pw)
+    
+    # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
+    # train_fungi_network(network_dir)
     evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
-    compute_challenge_score(team, team_pw, network_dir)
+    # compute_challenge_score(team, team_pw, network_dir)
 
