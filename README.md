@@ -1,1 +1,3 @@
-# Human-in-the-loop-Summer-School-2022-
+# Fungi classification challenge 
+
+Scripts for participants
