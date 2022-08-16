@@ -404,10 +404,10 @@ if __name__ == '__main__':
     team_pw = "fungi18"
 
     # where is the full set of images placed
-    image_dir = "C:/data/Danish Fungi/DF20M/"
+    image_dir = "/scratch/hilss/DF20M/"
 
     # where should log files, temporary files and trained models be placed
-    network_dir = "C:/data/Danish Fungi/FungiNetwork/"
+    network_dir = "/home/"
 
     get_participant_credits(team, team_pw)
     print_data_set_numbers(team, team_pw)
