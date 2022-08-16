@@ -400,8 +400,8 @@ if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
     # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
 
     # where is the full set of images placed
     image_dir = "C:/data/Danish Fungi/DF20M/"
