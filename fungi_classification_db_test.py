@@ -2,15 +2,15 @@ import fungichallenge.participant as fcp
 import random
 
 def test_get_participant_credits():
-    team = "DancingDeer"
-    team_pw = "fungi44"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
     current_credits = fcp.get_current_credits(team, team_pw)
     print('Team', team, 'credits:', current_credits)
 
 
 def test_get_data_set():
-    team = "DancingDeer"
-    team_pw = "fungi44"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
     imgs_and_data = fcp.get_data_set(team, team_pw, 'train_set')
     print('train_set pairs', len(imgs_and_data))
     imgs_and_data = fcp.get_data_set(team, team_pw, 'train_labels_set')
@@ -24,8 +24,8 @@ def test_get_data_set():
 
 
 def test_request_labels():
-    team = "DancingDeer"
-    team_pw = "fungi44"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
 
     imgs_and_data = fcp.get_data_set(team, team_pw, 'train_set')
     n_img = len(imgs_and_data)
@@ -44,8 +44,8 @@ def test_request_labels():
 def test_submit_labels():
     # team = "DancingDeer"
     # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
 
     imgs_and_data = fcp.get_data_set(team, team_pw, 'test_set')
     # n_img = len(imgs_and_data)
@@ -67,8 +67,8 @@ def test_submit_labels():
 def test_compute_score():
     # team = "DancingDeer"
     # team_pw = "fungi44"
-    team = "BigAnt"
-    team_pw = "fungi66"
+    team = "SwimmingApe"
+    team_pw = "fungi18"
 
     results = fcp.compute_score(team, team_pw)
     print(results)
