@@ -354,19 +354,19 @@ def train_fungi_network(nw_dir):
             beta = 1
             # generate mixed sample
             lam = np.random.beta(beta, beta)
-            rand_index = torch.randperm(input.size()[0]).cuda()
+            rand_index = torch.randperm(images.size()[0]).cuda()
             target_a = labels
             target_b = labels[rand_index]
-            bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam)
-            input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index, :, bbx1:bbx2, bby1:bby2]
+            bbx1, bby1, bbx2, bby2 = rand_bbox(images.size(), lam)
+            images[:, :, bbx1:bbx2, bby1:bby2] = images[rand_index, :, bbx1:bbx2, bby1:bby2]
             # adjust lambda to exactly match pixel ratio
-            lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
+            lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (images.size()[-1] * images.size()[-2]))
             # compute output
-            output = model(input)
-            loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
-
             y_preds = model(images)
-            loss = criterion(y_preds, labels)
+            loss = criterion(y_preds, target_a) * lam + criterion(y_preds, target_b) * (1. - lam)
+
+            # y_preds = model(images)
+            # loss = criterion(y_preds, labels)
 
             # Scale the loss to the mean of the accumulated batch size
             loss = loss / accumulation_steps
