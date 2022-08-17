@@ -1,0 +1,8 @@
+albumentations==1.2.1
+efficientnet_pytorch==0.7.1
+mysql_connector_repackaged
+numpy
+pandas==1.4.3
+scikit_learn==1.1.2
+torch==1.12.1
+tqdm==4.62.3

@@ -19,6 +19,7 @@ import numpy as np
 import tqdm
 from logging import getLogger, DEBUG, FileHandler, Formatter, StreamHandler
 import time
+import torch.nn.functional as F
 
 
 def get_participant_credits(tm, tm_pw):
@@ -43,6 +44,99 @@ def print_data_set_numbers(tm, tm_pw):
     print('final_set set pairs', len(imgs_and_data))
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'requested_set')
     print('requested_set set pairs', len(imgs_and_data))
+
+
+def calculate_entropy_from_logits(logits):
+    """
+    Calculate the entropy from logits
+    """
+    softmax = F.softmax(logits, dim=1)
+    entropy = -(softmax * torch.log(softmax)).sum(dim=1)
+    return entropy
+
+def highest_entropy_labels(tm, tm_pw, nw_dir):
+    ## TODO: TO ACTUALLY GET THE LABEL YOU SHOULD RUN labels = fcp.request_labels(tm, tm_pw, req_imgs)
+    """
+    Request labels with the highest entropy from the available pool of images.
+    """
+    n_request = 500
+    n_classes = 183
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+
+    model = EfficientNet.from_name('efficientnet-b0', num_classes=n_classes)
+    
+    checkpoint = torch.load(best_trained_model)
+    model.load_state_dict(checkpoint)
+
+    model.to(device)
+    model.eval()
+
+    pool_data_file = os.path.join(nw_dir, "pool_dataset.csv")
+    
+    # First get the image ids from the pool
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    
+    df = pd.read_csv(pool_data_file)
+    # n_classes = len(df['class'].unique())
+    # print("Number of classes in data", n_classes)
+    # print("Number of samples with labels", df.shape[0])
+
+    pool_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+
+    n_workers = 2
+    batch_sz = 1
+    pool_loader = DataLoader(pool_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    highest_entropy = [0,0] # [entropy, image_id]
+    for i, (images, labels) in tqdm.tqdm(enumerate(pool_loader)):
+        images = images.to(device)
+        labels = labels.to(device)
+
+        y_preds = model(images)
+        current_entropy = calculate_entropy_from_logits(y_preds)
+        if current_entropy > highest_entropy[0]:
+            highest_entropy[0] = current_entropy
+            highest_entropy[1] =  imgs_and_data[i][0]
+            print("New highest entropy", highest_entropy[0])
+            print("New highest entropy image id", highest_entropy[1])
+
+
+    
+        
+def create_pool_csv(tm, tm_pw, id_dir, nw_dir):
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    n_img = len(imgs_and_data)
+    print("Number of images in training pool (no labels)", n_img)
+
+    total_img_data = imgs_and_data
+
+    df = pd.DataFrame(data=imgs_and_data, columns=['image', 'taxonID'])
+
+    data_out = os.path.join(nw_dir, "pool_dataset.csv")
+
+    all_taxon_ids = df['taxonID']
+
+    # convert taxonID into a class id
+    taxon_id_to_label = {}
+    # label_to_taxon_id = {}
+    # for count, value in enumerate(all_taxon_ids.unique()):
+    #     if value is not None:
+    #         taxon_id_to_label[int(value)] = count
+    #     else:
+    #         taxon_id_to_label[int(value)] = count
+
+        # label_to_taxon_id[count] = int(value)
+
+    with open(data_out, 'w') as f:
+        f.write('image,class\n')
+        for t in total_img_data:
+            # class_id = taxon_id_to_label[t[1]]
+            out_str = os.path.join(id_dir, t[0]) + '.JPG, ' + str(-1) + '\n'
+            f.write(out_str)
 
 
 def request_random_labels(tm, tm_pw):
@@ -404,10 +498,12 @@ if __name__ == '__main__':
     team_pw = "fungi18"
 
     # where is the full set of images placed
-    image_dir = "C:/data/Danish Fungi/DF20M/"
+    #image_dir = "C:/data/Danish Fungi/DF20M/"
+    image_dir = "/scratch/hilss/DF20M/"
 
     # where should log files, temporary files and trained models be placed
-    network_dir = "C:/data/Danish Fungi/FungiNetwork/"
+    #network_dir = "C:/data/Danish Fungi/FungiNetwork/"
+    network_dir = "/scratch/kmze/FungiNetworkKilian"
 
     get_participant_credits(team, team_pw)
     print_data_set_numbers(team, team_pw)
