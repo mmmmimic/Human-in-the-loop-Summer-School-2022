@@ -249,6 +249,24 @@ class StratifiedSampler(Sampler):
     def __len__(self):
         return len(self.class_vector)
 
+def rand_bbox(size, lam):
+    W = size[2]
+    H = size[3]
+    cut_rat = np.sqrt(1. - lam)
+    cut_w = np.int(W * cut_rat)
+    cut_h = np.int(H * cut_rat)
+
+    # uniform
+    cx = np.random.randint(W)
+    cy = np.random.randint(H)
+
+    bbx1 = np.clip(cx - cut_w // 2, 0, W)
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+    bbx2 = np.clip(cx + cut_w // 2, 0, W)
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, 
+
 
 def train_fungi_network(nw_dir):
     data_file = os.path.join(nw_dir, "data_with_labels.csv")
@@ -260,33 +278,34 @@ def train_fungi_network(nw_dir):
     print("Number of classes in data", n_classes)
     print("Number of samples with labels", df.shape[0])
 
-    train_df = []
-    valid_df = []
-    ratio = 0.9
-    for i in range(n_classes):
-        tmp = df[df['class']==i]
-        if len(tmp) > 10:
-            ind = np.arange(len(tmp))
-            np.random.shuffle(ind)
-            train_num = int(len(tmp)*ratio)
-            train_df.append(tmp.iloc[ind[:train_num]])
-            valid_df.append(tmp.iloc[ind[train_num:]])
-        else:
-            train_df.append(tmp)
-            valid_df.append(tmp)
+    # train_df = []
+    # valid_df = []
+    # ratio = 0.9
+    # for i in range(n_classes):
+    #     tmp = df[df['class']==i]
+    #     if len(tmp) > 10:
+    #         ind = np.arange(len(tmp))
+    #         np.random.shuffle(ind)
+    #         train_num = int(len(tmp)*ratio)
+    #         train_df.append(tmp.iloc[ind[:train_num]])
+    #         valid_df.append(tmp.iloc[ind[train_num:]])
+    #     else:
+    #         train_df.append(tmp)
+    #         valid_df.append(tmp)
             
-    train_df = pd.concat(train_df, axis=0)
-    valid_df = pd.concat(valid_df, axis=0)
+    # train_df = pd.concat(train_df, axis=0)
+    # valid_df = pd.concat(valid_df, axis=0)
     
-    train_df.reset_index(inplace=True)
-    valid_df.reset_index(inplace=True)
-    train_df.drop('index', axis=1, inplace=True)
-    valid_df.drop('index', axis=1, inplace=True)    
+    # train_df.reset_index(inplace=True)
+    # valid_df.reset_index(inplace=True)
+    # train_df.drop('index', axis=1, inplace=True)
+    # valid_df.drop('index', axis=1, inplace=True)    
+    
+    train_df = df
+    valid_df = df
 
-    # TODO: split train and valid
     train_dataset = NetworkFungiDataset(train_df, transform=get_transforms(data='train'))
     train_dataset = train_dataset + train_dataset
-    # TODO: Divide data into training and validation
     valid_dataset = NetworkFungiDataset(valid_df, transform=get_transforms(data='valid'))
 
     # batch_sz * accumulation_step = 64
@@ -330,6 +349,21 @@ def train_fungi_network(nw_dir):
         for i, (images, labels) in tqdm.tqdm(enumerate(train_loader)):
             images = images.to(device)
             labels = labels.to(device)
+
+            # add cutmix
+            beta = 1
+            # generate mixed sample
+            lam = np.random.beta(beta, beta)
+            rand_index = torch.randperm(input.size()[0]).cuda()
+            target_a = labels
+            target_b = labels[rand_index]
+            bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam)
+            input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index, :, bbx1:bbx2, bby1:bby2]
+            # adjust lambda to exactly match pixel ratio
+            lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
+            # compute output
+            output = model(input)
+            loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
 
             y_preds = model(images)
             loss = criterion(y_preds, labels)
@@ -450,8 +484,8 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         taxon_id = int(data_stats['taxonID'][data_stats['class'] == pred_class])
         img_and_labels.append([s[0], taxon_id])
 
-    print("Submitting labels")
-    fcp.submit_labels(tm, tm_pw, img_and_labels)
+    # print("Submitting labels")
+    # fcp.submit_labels(tm, tm_pw, img_and_labels)
 
 
 def compute_challenge_score(tm, tm_pw, nw_dir):
