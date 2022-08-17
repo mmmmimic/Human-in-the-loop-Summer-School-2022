@@ -7,10 +7,11 @@ import torch
 import torch.nn as nn
 import cv2
 from torch.optim import Adam, SGD, AdamW
-# from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import Sampler
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 from albumentations import Compose, Normalize, Resize
-from albumentations import RandomCrop, HorizontalFlip, VerticalFlip, RandomBrightnessContrast, CenterCrop, PadIfNeeded, RandomResizedCrop
+from albumentations import RandomCrop, HorizontalFlip, VerticalFlip, RandomBrightnessContrast, CenterCrop, PadIfNeeded, RandomResizedCrop, RandomScale
 from albumentations.pytorch import ToTensorV2
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
@@ -64,7 +65,6 @@ def request_random_labels(tm, tm_pw):
         req_imgs.append(im_id)
 
     labels = fcp.request_labels(tm, tm_pw, req_imgs)
-
 
 def test_submit_labels(tm, tm_pw):
     """
@@ -211,6 +211,45 @@ def init_logger(log_file='train.log'):
     return logger
 
 
+class StratifiedSampler(Sampler):
+    """Stratified Sampling
+    Provides equal representation of target classes in each batch
+    """
+    def __init__(self, class_vector, batch_size):
+        """
+        Arguments
+        ---------
+        class_vector : torch tensor
+            a vector of class labels
+        batch_size : integer
+            batch_size
+        """
+        self.n_splits = int(class_vector.size(0) / batch_size)
+        self.class_vector = class_vector
+
+    def gen_sample_array(self):
+        try:
+            from sklearn.model_selection import StratifiedShuffleSplit
+        except:
+            print('Need scikit-learn for this functionality')
+        import numpy as np
+        
+        
+        s = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=0.5)
+        X = torch.randn(self.class_vector.size(0),2).numpy()
+        y = self.class_vector.numpy()
+        s.get_n_splits(X, y)
+
+        train_index, test_index = next(s.split(X, y))
+        return np.hstack([train_index, test_index])
+
+    def __iter__(self):
+        return iter(self.gen_sample_array())
+
+    def __len__(self):
+        return len(self.class_vector)
+
+
 def train_fungi_network(nw_dir):
     data_file = os.path.join(nw_dir, "data_with_labels.csv")
     log_file = os.path.join(nw_dir, "FungiEfficientNet-B0.log")
@@ -221,16 +260,45 @@ def train_fungi_network(nw_dir):
     print("Number of classes in data", n_classes)
     print("Number of samples with labels", df.shape[0])
 
-    train_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+    train_df = []
+    valid_df = []
+    ratio = 0.9
+    for i in range(n_classes):
+        tmp = df[df['class']==i]
+        if len(tmp) > 10:
+            ind = np.arange(len(tmp))
+            np.random.shuffle(ind)
+            train_num = int(len(tmp)*ratio)
+            train_df.append(tmp.iloc[ind[:train_num]])
+            valid_df.append(tmp.iloc[ind[train_num:]])
+        else:
+            train_df.append(tmp)
+            valid_df.append(tmp)
+            
+    train_df = pd.concat(train_df, axis=0)
+    valid_df = pd.concat(valid_df, axis=0)
+    
+    train_df.reset_index(inplace=True)
+    valid_df.reset_index(inplace=True)
+    train_df.drop('index', axis=1, inplace=True)
+    valid_df.drop('index', axis=1, inplace=True)    
+
+    # TODO: split train and valid
+    train_dataset = NetworkFungiDataset(train_df, transform=get_transforms(data='train'))
+    train_dataset = train_dataset + train_dataset
     # TODO: Divide data into training and validation
-    valid_dataset = NetworkFungiDataset(df, transform=get_transforms(data='valid'))
+    valid_dataset = NetworkFungiDataset(valid_df, transform=get_transforms(data='valid'))
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 32
-    accumulation_steps = 2
-    n_epochs = 20
+    batch_sz = 16
+    accumulation_steps = 4
+    n_epochs = 40
     n_workers = 8
-    train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=n_workers)
+    
+    class_vector = torch.from_numpy(train_df['class'].values)
+    class_vector = class_vector.repeat(2)
+    sampler = StratifiedSampler(class_vector ,batch_sz)
+    train_loader = DataLoader(train_dataset, batch_size=batch_sz, num_workers=n_workers, sampler=sampler)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
 
     seed_torch(777)
@@ -244,9 +312,9 @@ def train_fungi_network(nw_dir):
     model.to(device)
 
     lr = 0.01
-    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
-
+    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+    scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=0)
     criterion = nn.CrossEntropyLoss()
     best_score = 0.
     best_loss = np.inf
@@ -293,12 +361,13 @@ def train_fungi_network(nw_dir):
             loss = criterion(y_preds, labels)
             avg_val_loss += loss.item() / len(valid_loader)
 
-        scheduler.step(avg_val_loss)
+        # scheduler.step(avg_val_loss)
+        scheduler.step()
 
         # TODO: Divide data into training and validation
-        score = f1_score(df['class'], preds, average='macro')
-        accuracy = accuracy_score(df['class'], preds)
-        recall_3 = top_k_accuracy_score(df['class'], preds_raw, k=3)
+        score = f1_score(valid_df['class'], preds, average='macro')
+        accuracy = accuracy_score(valid_df['class'], preds)
+        recall_3 = top_k_accuracy_score(valid_df['class'], preds_raw, k=3)
 
         elapsed = time.time() - start_time
         logger.debug(
@@ -395,7 +464,6 @@ def compute_challenge_score(tm, tm_pw, nw_dir):
     # print(results)
     logger.info(results)
 
-
 if __name__ == '__main__':
     # Your team and team password
     # team = "DancingDeer"
@@ -408,13 +476,13 @@ if __name__ == '__main__':
 
     # where should log files, temporary files and trained models be placed
     network_dir = "./network/"
-
+    
     # get_participant_credits(team, team_pw)
     # print_data_set_numbers(team, team_pw)
+    
     # # request_random_labels(team, team_pw)
     
-    # get_all_data_with_labels(team, team_pw, image_dir, network_dir)
-    # train_fungi_network(network_dir)
+    get_all_data_with_labels(team, team_pw, image_dir, network_dir)
+    train_fungi_network(network_dir)
     evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
-    # compute_challenge_score(team, team_pw, network_dir)
-
+    compute_challenge_score(team, team_pw, network_dir)
