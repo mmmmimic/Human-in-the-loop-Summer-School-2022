@@ -17,6 +17,9 @@ if __name__ == '__main__':
 
     
     #Create the Pool CSV and predict with current model
+    fungi_classification.get_participant_credits(team, team_pw)
+    fungi_classification.print_data_set_numbers(team, team_pw)
     fungi_classification.create_pool_csv(team, team_pw, image_dir, network_dir)
     fungi_classification.variation_ratio_label(team, team_pw,  network_dir)
+    fungi_classification.get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     
