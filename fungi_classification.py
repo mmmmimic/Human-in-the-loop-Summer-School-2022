@@ -54,6 +54,95 @@ def calculate_entropy_from_logits(logits):
     entropy = -(softmax * torch.log(softmax)).sum(dim=1)
     return entropy
 
+def variation_ratio_label(tm, tm_pw, nw_dir):
+    ## TODO: TO ACTUALLY GET THE LABEL YOU SHOULD RUN labels = fcp.request_labels(tm, tm_pw, req_imgs)
+    """
+    An example on how to request labels from the available pool of images.
+    Here it is just a random subset being requested
+    """
+    n_request = 5
+    n_classes = 183
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+
+    model = EfficientNet.from_name('efficientnet-b0', num_classes=n_classes)
+    # todo: load weights after we trained that
+    checkpoint = torch.load(best_trained_model)
+    model.load_state_dict(checkpoint)
+
+    model.to(device)
+    model.eval()
+
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+
+    pool_data_file = os.path.join(nw_dir, "pool_dataset.csv")
+
+    df = pd.read_csv(pool_data_file)
+    n_classes = len(df['class'].unique())
+    print("Number of classes in data", n_classes)
+    print("Number of samples with labels", df.shape[0])
+
+    pool_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
+
+    n_workers = 2
+    batch_sz = 32
+    pool_loader = DataLoader(pool_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+
+    highest_prob = []
+    img_to_ask = []
+
+    with torch.no_grad():
+        for i, (images, _) in tqdm.tqdm(enumerate(pool_loader)):
+            
+            images = images.to(device)
+
+            y_preds = model(images)
+
+            # transform them into probabilities
+            y_pred_prob = torch.nn.functional.softmax(y_preds, dim=1)
+            # print(y_pred_prob)
+
+            # assert torch.sum(y_pred_prob[0]) == 1, "Problem here M8, pub still closed: {}".format(torch.sum(y_pred_prob[0]))
+
+            # I should get the highest
+            max_prob, _ = torch.max(y_pred_prob, dim=1)
+
+            # print(max_prob.shape)
+            # print(max_prob.shape)
+            # print('----')
+            highest_prob.extend(max_prob.cpu().numpy())
+
+    # now I have everything
+    print('End')
+    highest_prob = np.array(highest_prob)
+
+    # print(highest_prob.shape)
+    var_ratio = 1 - highest_prob
+
+    print(var_ratio[0:50])
+    # get the argmax index
+
+    if n_request == 1:
+        idx = np.argmax(var_ratio)
+
+        # print(idx)
+
+        # get the img name to be able to ask it
+        img_idx = imgs_and_data[idx][0]
+        print(img_idx)
+        img_to_ask.append(img_idx)
+    else:
+        indices = np.argpartition(var_ratio, -n_request)[-n_request:]
+        print(indices)
+        print(var_ratio[indices])
+
+        # get the img name to be able to ask it
+        img_idx = [imgs_and_data[j][0] for j in indices]
+        img_to_ask.append(img_idx)
+
 def highest_entropy_labels(tm, tm_pw, nw_dir):
     ## TODO: TO ACTUALLY GET THE LABEL YOU SHOULD RUN labels = fcp.request_labels(tm, tm_pw, req_imgs)
     """
