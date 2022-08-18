@@ -312,7 +312,7 @@ def train_fungi_network(nw_dir):
     batch_sz = 32
     accumulation_steps = 2
     n_epochs = 20
-    n_workers = 8
+    n_workers = 16
     
     class_vector = torch.from_numpy(train_df['class'].values)
     class_vector = class_vector.repeat(2)
@@ -331,9 +331,9 @@ def train_fungi_network(nw_dir):
     model.to(device)
 
     lr = 0.01
-    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
-    scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=0)
+    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-5)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
+    # scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=0)
     criterion = nn.CrossEntropyLoss()
     best_score = 0.
     best_loss = np.inf
@@ -571,6 +571,7 @@ def get_similar_images(nw_dir, tm, tm_pw):
 
     img_dict = dict(zip(list(df['image']), list(df['class'])))
     
+    print(class_ids)
     
     for class_id in class_ids:
         img_ids = list(filter(lambda x: img_dict[x] == class_id, img_dict.keys()))
@@ -641,7 +642,7 @@ if __name__ == '__main__':
     # get_similar_images(network_dir, team, team_pw)
     
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
-    train_fungi_network(network_dir)
+    # train_fungi_network(network_dir)
     evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     compute_challenge_score(team, team_pw, network_dir)
     
