@@ -265,7 +265,7 @@ def rand_bbox(size, lam):
     bbx2 = np.clip(cx + cut_w // 2, 0, W)
     bby2 = np.clip(cy + cut_h // 2, 0, H)
 
-    return bbx1, bby1, bbx2, 
+    return bbx1, bby1, bbx2, bby2 
 
 
 def train_fungi_network(nw_dir):
@@ -309,9 +309,9 @@ def train_fungi_network(nw_dir):
     valid_dataset = NetworkFungiDataset(valid_df, transform=get_transforms(data='valid'))
 
     # batch_sz * accumulation_step = 64
-    batch_sz = 16
-    accumulation_steps = 4
-    n_epochs = 40
+    batch_sz = 32
+    accumulation_steps = 2
+    n_epochs = 20
     n_workers = 8
     
     class_vector = torch.from_numpy(train_df['class'].values)
@@ -331,7 +331,7 @@ def train_fungi_network(nw_dir):
     model.to(device)
 
     lr = 0.01
-    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=1, verbose=True, eps=1e-6)
     scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=0)
     criterion = nn.CrossEntropyLoss()
@@ -350,7 +350,7 @@ def train_fungi_network(nw_dir):
             images = images.to(device)
             labels = labels.to(device)
 
-            # add cutmix
+            ## add cutmix
             beta = 1
             # generate mixed sample
             lam = np.random.beta(beta, beta)
@@ -410,13 +410,13 @@ def train_fungi_network(nw_dir):
         if accuracy > best_score:
             best_score = accuracy
             logger.debug(f'  Epoch {epoch + 1} - Save Best Accuracy: {best_score:.6f} Model')
-            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy_balance.pth")
             torch.save(model.state_dict(), best_model_name)
 
         if avg_val_loss < best_loss:
             best_loss = avg_val_loss
             logger.debug(f'  Epoch {epoch + 1} - Save Best Loss: {best_loss:.4f} Model')
-            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_loss.pth")
+            best_model_name = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_loss_balance.pth")
             torch.save(model.state_dict(), best_model_name)
 
 
@@ -432,7 +432,7 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
     # use_set = 'final_set'
     print(f"Evaluating on {use_set}")
 
-    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy.pth")
+    best_trained_model = os.path.join(nw_dir, "DF20M-EfficientNet-B0_best_accuracy_balance.pth")
     log_file = os.path.join(nw_dir, "FungiEvaluation.log")
     data_stats_file = os.path.join(nw_dir, "fungi_class_stats.csv")
 
@@ -484,8 +484,8 @@ def evaluate_network_on_test_set(tm, tm_pw, im_dir, nw_dir):
         taxon_id = int(data_stats['taxonID'][data_stats['class'] == pred_class])
         img_and_labels.append([s[0], taxon_id])
 
-    # print("Submitting labels")
-    # fcp.submit_labels(tm, tm_pw, img_and_labels)
+    print("Submitting labels")
+    fcp.submit_labels(tm, tm_pw, img_and_labels)
 
 
 def compute_challenge_score(tm, tm_pw, nw_dir):
@@ -497,6 +497,128 @@ def compute_challenge_score(tm, tm_pw, nw_dir):
     results = fcp.compute_score(tm, tm_pw)
     # print(results)
     logger.info(results)
+
+
+def create_pool_csv(tm, tm_pw, id_dir, nw_dir):
+    imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    n_img = len(imgs_and_data)
+    print("Number of images in training pool (no labels)", n_img)
+
+    total_img_data = imgs_and_data
+
+    df = pd.DataFrame(data=imgs_and_data, columns=['image', 'taxonID'])
+
+    data_out = os.path.join(nw_dir, "pool_dataset.csv")
+
+    all_taxon_ids = df['taxonID']
+
+    # convert taxonID into a class id
+    taxon_id_to_label = {}
+    # label_to_taxon_id = {}
+    # for count, value in enumerate(all_taxon_ids.unique()):
+    #     if value is not None:
+    #         taxon_id_to_label[int(value)] = count
+    #     else:
+    #         taxon_id_to_label[int(value)] = count
+
+        # label_to_taxon_id[count] = int(value)
+
+    with open(data_out, 'w') as f:
+        f.write('image,class\n')
+        for t in total_img_data:
+            # class_id = taxon_id_to_label[t[1]]
+            out_str = os.path.join(id_dir, t[0]) + '.JPG, ' + str(-1) + '\n'
+            f.write(out_str)
+
+
+def get_embedding(model, x):
+    x = model.extract_features(x)
+    x = model._avg_pooling(x)
+    x = x.flatten(-2, -1).squeeze(-1)
+    return x # [B, 1280]
+
+def get_similar_images(nw_dir, tm, tm_pw):
+    data_file = os.path.join(nw_dir, "data_with_labels.csv")
+    df = pd.read_csv(data_file)
+    n_classes = len(df['class'].unique())
+    
+    pool_file = os.path.join(nw_dir, "pool_dataset.csv")
+    pool_df = pd.read_csv(pool_file)
+
+    trs = get_transforms(data='valid')
+    pool_dataset = NetworkFungiDataset(pool_df, transform=trs)
+    
+    # batch_sz * accumulation_step = 64
+    batch_sz = 25
+    
+    pool_loader = DataLoader(pool_dataset, batch_size=batch_sz, num_workers=8, shuffle=False)
+    seed_torch(777)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using device:', device)
+
+    model = EfficientNet.from_pretrained('efficientnet-b0')
+    model._fc = nn.Linear(model._fc.in_features, n_classes)
+    model.load_state_dict(torch.load('network/DF20M-EfficientNet-B0_best_accuracy.pth'))
+
+    model.to(device)
+    
+    model.eval()
+    
+    img_ids = np.load('img_id.npy')
+    class_ids = np.load('class_id.npy')
+    
+
+    img_dict = dict(zip(list(df['image']), list(df['class'])))
+    
+    
+    for class_id in class_ids:
+        img_ids = list(filter(lambda x: img_dict[x] == class_id, img_dict.keys()))
+        img_reps = []
+        for img_id in img_ids:
+            img = cv2.imread(img_id)
+            augmented = trs(image=img)
+            img = augmented['image']
+            img = img.unsqueeze(0).to(device) # [1, 3 , H, W]
+            x = model.extract_features(img)
+            x = model._avg_pooling(x)
+            img_rep = x.flatten(-2, -1).squeeze(-1)
+            img_reps.append(img_rep.detach().cpu())
+        
+        img_rep = torch.cat(img_reps, dim=0)
+        img_rep = torch.mean(img_rep, dim=0, keepdim=True) # [1, ]
+        
+        pool_inds = []
+        pool_values = []
+        for data, _ in pool_loader:
+            data = data.to(device)
+            data = model.extract_features(data)
+            data = model._avg_pooling(data)
+            pool_img_rep = data.flatten(-2, -1).squeeze(-1)
+            # pool_img_rep = get_embedding(model, data)
+            bs = data.size(0)
+            if bs > 10:
+                pool = torch.topk(torch.cosine_similarity(pool_img_rep, img_rep.to(device), dim=1), k=10)
+            else:
+                pool = torch.topk(torch.cosine_similarity(pool_img_rep, img_rep.to(device), dim=1), k=bs-1)                
+            values = pool[0]
+            inds = pool[1]
+            pool_inds.append(inds.detach().cpu())
+            pool_values.append(values.detach().cpu())
+            
+        inds = torch.cat(pool_inds, dim=0)
+        values = torch.cat(pool_values, dim=0)
+        inds = torch.topk(values, k=10)[1]
+        # inds = torch.topk(torch.cosine_similarity(pool_rep, img_rep, dim=1), k=5)[1]
+        inds = [i.item() for i in inds]
+        pool_ids = list(map(lambda x: pool_df['image'].values[x], inds))
+        pool_ids = list(map(lambda x: x.split('/')[-1].split('.')[0], pool_ids))
+        print(pool_ids)
+        assert len(pool_ids) == 10
+        
+        labels = fcp.request_labels(tm, tm_pw, pool_ids)
+
+
 
 if __name__ == '__main__':
     # Your team and team password
@@ -511,12 +633,18 @@ if __name__ == '__main__':
     # where should log files, temporary files and trained models be placed
     network_dir = "./network/"
     
-    # get_participant_credits(team, team_pw)
-    # print_data_set_numbers(team, team_pw)
+    get_participant_credits(team, team_pw)
+    print_data_set_numbers(team, team_pw)
     
     # # request_random_labels(team, team_pw)
+    
+    # get_similar_images(network_dir, team, team_pw)
     
     get_all_data_with_labels(team, team_pw, image_dir, network_dir)
     train_fungi_network(network_dir)
     evaluate_network_on_test_set(team, team_pw, image_dir, network_dir)
     compute_challenge_score(team, team_pw, network_dir)
+    
+    # create_pool_csv(team, team_pw, image_dir, network_dir)
+    
+
