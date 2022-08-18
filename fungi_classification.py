@@ -151,7 +151,7 @@ def highest_entropy_labels(tm, tm_pw, nw_dir):
     """
     Request labels with the highest entropy from the available pool of images.
     """
-    n_request = 1500
+    n_request = 3000
     n_classes = 183
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -244,7 +244,7 @@ def request_random_labels(tm, tm_pw):
     An example on how to request labels from the available pool of images.
     Here it is just a random subset being requested
     """
-    n_request = 500
+    n_request = 300
 
     # First get the image ids from the pool
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
