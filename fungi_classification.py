@@ -52,7 +52,7 @@ def calculate_entropy_from_logits(logits):
     """
     softmax = F.softmax(logits, dim=1)
     entropy = -(softmax * torch.log(softmax)).sum(dim=1)
-    return entropy
+    return entropy.cpu().item()
 
 def variation_ratio_label(tm, tm_pw, nw_dir):
     ## TODO: TO ACTUALLY GET THE LABEL YOU SHOULD RUN labels = fcp.request_labels(tm, tm_pw, req_imgs)
@@ -60,7 +60,7 @@ def variation_ratio_label(tm, tm_pw, nw_dir):
     An example on how to request labels from the available pool of images.
     Here it is just a random subset being requested
     """
-    n_request = 5
+    n_request = 1500
     n_classes = 183
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -143,12 +143,15 @@ def variation_ratio_label(tm, tm_pw, nw_dir):
         img_idx = [imgs_and_data[j][0] for j in indices]
         img_to_ask.append(img_idx)
 
+    #labels = fcp.request_labels(tm, tm_pw, img_to_ask)
+
+
 def highest_entropy_labels(tm, tm_pw, nw_dir):
     ## TODO: TO ACTUALLY GET THE LABEL YOU SHOULD RUN labels = fcp.request_labels(tm, tm_pw, req_imgs)
     """
     Request labels with the highest entropy from the available pool of images.
     """
-    n_request = 500
+    n_request = 1500
     n_classes = 183
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -179,23 +182,31 @@ def highest_entropy_labels(tm, tm_pw, nw_dir):
     n_workers = 2
     batch_sz = 1
     pool_loader = DataLoader(pool_dataset, batch_size=batch_sz, shuffle=False, num_workers=n_workers)
+    n_img = len(imgs_and_data)
 
-    highest_entropy = [0,0] # [entropy, image_id]
-    for i, (images, labels) in tqdm.tqdm(enumerate(pool_loader)):
-        images = images.to(device)
-        labels = labels.to(device)
+    entropy_list = [] # [entropy]
+    image_id_list = [] # [image_id]
+    with torch.no_grad():
+        for i, (images, labels) in tqdm.tqdm(enumerate(pool_loader)):
+            # if i == 200:
+            #     break
+            images = images.to(device)
+            labels = labels.to(device)
 
-        y_preds = model(images)
-        current_entropy = calculate_entropy_from_logits(y_preds)
-        if current_entropy > highest_entropy[0]:
-            highest_entropy[0] = current_entropy
-            highest_entropy[1] =  imgs_and_data[i][0]
-            print("New highest entropy", highest_entropy[0])
-            print("New highest entropy image id", highest_entropy[1])
+            y_preds = model(images)
+            entropy_list.append(calculate_entropy_from_logits(y_preds))
+            image_id_list.append(imgs_and_data[i][0])
+
+    # done with computing stuff
+
+    entropy_list, image_id_list = zip(*sorted(zip(entropy_list, image_id_list)))
+
+    images_to_return = image_id_list[-n_request:]
+    print(images_to_return)
+    #labels = fcp.request_labels(tm, tm_pw, images_to_return)   
 
 
     
-        
 def create_pool_csv(tm, tm_pw, id_dir, nw_dir):
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
     n_img = len(imgs_and_data)
