@@ -81,9 +81,9 @@ def variation_ratio_label(tm, tm_pw, nw_dir):
     pool_data_file = os.path.join(nw_dir, "pool_dataset.csv")
 
     df = pd.read_csv(pool_data_file)
-    n_classes = len(df['class'].unique())
-    print("Number of classes in data", n_classes)
-    print("Number of samples with labels", df.shape[0])
+    # n_classes = len(df['class'].unique())
+    # print("Number of classes in data", n_classes)
+    # print("Number of samples with labels", df.shape[0])
 
     pool_dataset = NetworkFungiDataset(df, transform=get_transforms(data='train'))
 
@@ -164,10 +164,10 @@ def highest_entropy_labels(tm, tm_pw, nw_dir):
     model.to(device)
     model.eval()
 
-    pool_data_file = os.path.join(nw_dir, "pool_dataset.csv")
-    
     # First get the image ids from the pool
     imgs_and_data = fcp.get_data_set(tm, tm_pw, 'train_set')
+    
+    pool_data_file = os.path.join(nw_dir, "pool_dataset.csv")
     
     df = pd.read_csv(pool_data_file)
     # n_classes = len(df['class'].unique())
